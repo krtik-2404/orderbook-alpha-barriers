@@ -150,10 +150,17 @@ def reconstruct(data: Path, hours: int, p: float, trust: bool, seed: int,
                 if len(rows) > run_start:
                     intervals.append([run_start, len(rows)])
                 run_start = len(rows)
-                # Only a mid-stream break can be repaired from the events we
-                # dropped ourselves. A stale anchor at start-up is a genuine
-                # hole in the archive; wait for the next snapshot as usual.
-                if item.reason == "sequence_break" and missed:
+                # Repair ONLY a hole this script punched. The archive has
+                # real gaps of its own, and pu must chain exactly onto the
+                # last event we withheld for the missing events to be the
+                # whole story; if it does not, the data is genuinely absent
+                # and the engine waits for a snapshot, exactly as it would
+                # live. Repairing anyway splices across a real hole and
+                # leaves a crossed book for tens of thousands of frames -
+                # which is the very contamination this arm is the control
+                # for.
+                if (item.reason == "sequence_break" and missed
+                        and int(ev["pu"]) == int(missed[-1]["u"])):
                     engine.resync_over(missed)
                     resyncs += 1
                     item = next(engine.feed([ev]), None)

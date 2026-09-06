@@ -34,7 +34,8 @@ def replay(snap, events, trust, drops=()):
             if len(states) > start:
                 runs.append((start, len(states)))
             start = len(states)
-            if item.reason == "sequence_break" and missed:
+            if (item.reason == "sequence_break" and missed
+                    and int(ev["pu"]) == int(missed[-1]["u"])):
                 e.resync_over(missed)
                 resyncs += 1
                 item = next(e.feed([ev]), None)
@@ -83,6 +84,28 @@ def test_the_naive_arm_splices_and_carries_a_wrong_book():
     wrong = sum(a.bids != b.bids or a.asks != b.asks
                 for a, b in zip(states, good))
     assert wrong > len(drops), "splicing must actually corrupt the book"
+
+
+def test_a_hole_we_did_not_punch_is_not_repaired():
+    """The archive has real gaps of its own. Replaying the events WE withheld
+    cannot reconstruct events that were never recorded, so pu has to chain
+    exactly onto the last withheld event before the repair is allowed. Without
+    that check the arm meant to be the clean control splices across real holes
+    and carries a crossed book for tens of thousands of frames."""
+    snap, evs = stream()
+    drops = set(range(DROP_EVERY, len(evs), DROP_EVERY))
+    # A hole in the archive itself: these events are gone, not withheld.
+    hole = set(range(300, 308))
+    archive = [e for i, e in enumerate(evs) if i not in hole]
+    # Re-index the drops against the shortened stream.
+    shifted = {i - sum(1 for h in hole if h < i) for i in drops if i not in hole}
+
+    _, states, runs, resyncs = replay(snap, archive, trust=True, drops=shifted)
+
+    assert resyncs < len(shifted), "the real hole must not be repaired"
+    # It ends a run and then stays desynced: no snapshot follows in this stream.
+    assert len(runs) == resyncs + 1
+    assert len(states) < len(archive) - len(shifted)
 
 
 def test_trust_sequence_is_on_by_default():
