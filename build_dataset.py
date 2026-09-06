@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import math
 import os
 import subprocess
 import sys
@@ -45,6 +46,58 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 from lobforge.book import BookEngine, BookState, Desync  # noqa: E402
+
+
+# Tick size per symbol, from the exchange's own contract spec. Getting this
+# wrong does not raise: too large and two real price levels collapse into one
+# key, which produces a smaller, tidier, entirely fictional book. Hence
+# check_tick below - the value is asserted against the data, not trusted.
+TICKS = {"btcusdt": 0.10, "ethusdt": 0.01, "solusdt": 0.001,
+         "dogeusdt": 0.00001}
+
+SCALE = 10 ** 8          # price strings carry at most 8 decimals
+
+
+def observed_tick(prices) -> float:
+    """The finest grid every observed price sits on, by gcd."""
+    g = 0
+    for price in prices:
+        g = math.gcd(g, int(round(float(price) * SCALE)))
+    return g / SCALE
+
+
+def check_tick(data: Path, tick: float, limit: int = 4) -> None:
+    """Fail loudly if --tick disagrees with the price granularity in the data.
+
+    A tick larger than the real one silently merges levels; a tick smaller than
+    the real one scatters one level across several keys. Neither raises, both
+    poison every number downstream, and both are invisible in the output. The
+    snapshots carry 1000 levels a side, so a handful of them settle it.
+    """
+    prices = []
+    snaps = partitions(data, "snapshots")
+    for h in sorted(snaps)[:limit]:
+        for f in snaps[h]:
+            for r in read_jsonl(f):
+                m = r.get("m", {})
+                for side in ("bids", "asks"):
+                    prices += [q[0] for q in m.get(side, ())]
+        if len(prices) > 2000:
+            break
+    if len(prices) < 100:
+        print(f"  tick {tick}: only {len(prices)} prices available, not checked")
+        return
+
+    seen = observed_tick(prices)
+    if abs(seen - tick) > 1e-12:
+        raise SystemExit(
+            f"tick mismatch: --tick {tick} but {len(prices):,} prices in "
+            f"{data} sit on a {seen:g} grid.\n"
+            f"  {seen:g} is the finest grid every observed price lies on.\n"
+            "  A wrong tick merges or scatters levels silently, so this is "
+            "fatal rather than a warning.\n"
+            f"  Known ticks: " + ", ".join(f"{k}={v:g}" for k, v in TICKS.items()))
+    print(f"  tick {tick:g} confirmed against {len(prices):,} observed prices")
 
 
 def read_jsonl(path: str):
@@ -85,7 +138,8 @@ def code_version() -> str:
 
 
 def build(data: Path, out: Path, levels: int, tick: float, strict: bool,
-          keep: int = 500):
+          symbol: str, keep: int = 500):
+    check_tick(data, tick)
     depth_parts = partitions(data, "depth")
     snap_parts = partitions(data, "snapshots")
     hours = sorted(depth_parts)
@@ -187,6 +241,7 @@ def build(data: Path, out: Path, levels: int, tick: float, strict: bool,
         "built_ms": int(time.time() * 1000),
         "code_version": code_version(),
         "schema": "dataset/v1",
+        "symbol": symbol,
         "levels": levels,
         "tick": tick,
         "frames": int(frames.shape[0]),
@@ -235,14 +290,31 @@ def main() -> int:
     p.add_argument("--data", default="./data")
     p.add_argument("--out", default="./dataset")
     p.add_argument("--levels", type=int, default=10)
-    p.add_argument("--tick", type=float, default=0.10)
+    p.add_argument("--symbol", default=None,
+                   help="defaults to the suffix of --data (data-ethusdt -> "
+                        "ethusdt), else btcusdt")
+    p.add_argument("--tick", type=float, default=None,
+                   help="defaults to the symbol's exchange tick; whatever it "
+                        "ends up as, it is checked against the data")
     p.add_argument("--keep", type=int, default=500,
                    help="book levels retained per side; only --levels are "
                         "emitted, the rest is margin (bounds the per-event sort)")
     p.add_argument("--lenient", action="store_true",
                    help="do not raise on invariant violations, just count them")
     a = p.parse_args()
-    return build(Path(a.data), Path(a.out), a.levels, a.tick, not a.lenient, a.keep)
+
+    # data-ethusdt -> ethusdt. One archive per symbol per directory is the whole
+    # multi-symbol design, so the directory name is the symbol and there is
+    # nothing else to infer it from.
+    symbol = a.symbol or Path(a.data).name.partition("-")[2] or "btcusdt"
+    symbol = symbol.lower()
+    tick = a.tick if a.tick is not None else TICKS.get(symbol)
+    if tick is None:
+        raise SystemExit(f"no tick known for {symbol!r}; pass --tick "
+                         "(known: " + ", ".join(TICKS) + ")")
+    print(f"  symbol {symbol}")
+    return build(Path(a.data), Path(a.out), a.levels, tick, not a.lenient,
+                 symbol, a.keep)
 
 
 if __name__ == "__main__":
