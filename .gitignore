@@ -1,0 +1,26 @@
+# Archives and derived data. The point of this repo is the code and the
+# finding; the 900 MB of raw depth events that produced it do not belong in
+# git, and neither does anything rebuildable from them.
+data*/
+dataset*/
+live-data/
+sandbox-data/
+fi2010-data/
+
+# Measurement output. Every number in the README is reproduced by running the
+# scripts; the figures in docs/figures/ are the committed evidence.
+runs/
+*.log
+
+# Partial and quarantined writes the collector produces on a bad shutdown.
+*.part
+*.broken
+*.orphan
+
+# Local only
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+probe.*

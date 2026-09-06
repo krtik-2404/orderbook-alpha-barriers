@@ -1,0 +1,16 @@
+services:
+  capture:
+    build: .
+    image: lobforge/capture:0.1.0
+    container_name: lobforge-capture
+    restart: unless-stopped
+    stop_grace_period: 30s          # must exceed drain time
+    env_file: [.env]
+    volumes:
+      - ./data:/data
+    logging:
+      driver: json-file
+      options: { max-size: "50m", max-file: "5" }
+    deploy:
+      resources:
+        limits: { memory: 1g }
