@@ -10,6 +10,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.5", "aiohttp>=3.9"]
+# The research tier. The collector deliberately does not depend on any of
+# this: it has to keep running on a box where torch was never installed.
+research = ["numpy>=1.26", "torch>=2.2", "matplotlib>=3.8"]
 
 [project.scripts]
 lobforge-capture = "lobforge.capture:main"
