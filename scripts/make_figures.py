@@ -131,6 +131,8 @@ def fig_latency() -> None:
         "gross_bp_by_latency_ms": dict((int(r["latency_ms"]), r["gross_bp"])
                                        for r in sweep),
         "boot_ci_bp_at_0ms": sweep[0]["boot_ci_bp"],
+        "boot_ci_bp_by_latency_ms": dict((int(r["latency_ms"]),
+                                          r["boot_ci_bp"]) for r in sweep),
         "naive_ci_bp_at_0ms": sweep[0].get("naive_ci_bp"),
         "ci_width_ratio_at_0ms": sweep[0].get("ci_width_ratio"),
         "n_trades_at_0ms": sweep[0]["n_trades"],
@@ -249,6 +251,24 @@ def fig_ablation() -> None:
 
 
 # --------------------------------------------------------------- figure 4
+def fi2010_test_rows():
+    """Rows the benchmark offers, before the warm-up and boundary trim.
+
+    Each file is features x events, so one line is one feature across every
+    event and its field count is the sample count. Reading a single line is
+    enough; the files are hundreds of megabytes.
+    """
+    d = ROOT / "fi2010-data"
+    n = 0
+    for i in (7, 8, 9):
+        f = d / ("Test_Dst_NoAuction_DecPre_CF_%d.txt" % i)
+        if not f.exists():
+            return None          # not downloaded; the trim stays unquoted
+        with f.open() as fh:
+            n += len(fh.readline().split())
+    return n
+
+
 def fig_fi2010() -> None:
     src = newest("fi2010-null-*.json")
     d = json.loads(src.read_text())
@@ -283,9 +303,14 @@ def fig_fi2010() -> None:
     ax.legend(loc="upper right", fontsize=9)
     save(fig, "fig4-fi2010-null.png")
 
+    n_kept = d["horizons"][0]["n_test"]
+    raw = fi2010_test_rows()
     FACTS["fi2010"] = {
         "source": src.name, "features": d["features"],
-        "n_test": d["horizons"][0]["n_test"],
+        "n_test": n_kept,
+        "n_test_offered": raw,
+        "n_test_offered_source": "fi2010-data/Test_*_CF_{7,8,9}.txt columns",
+        "test_trim_fraction": (raw - n_kept) / raw if raw else None,
         "null_weighted_f1_pct": dict((h["k"], h["weighted_f1"] * 100)
                                      for h in d["horizons"]),
         "null_macro_f1": dict((h["k"], h["macro_f1"]) for h in d["horizons"]),
@@ -396,6 +421,74 @@ def fig_heatmap(minutes: int = 60) -> None:
     }
 
 
+def dataset_facts() -> dict:
+    """Everything the README says about the dataset itself.
+
+    Not a figure. It is here because the README quotes these numbers and
+    dataset/ is no more committed than runs/ is, so without this block a reader
+    with only the repo has nothing to check them against.
+    """
+    mf = json.loads((DATASET / "manifest.json").read_text())
+    mid = np.load(DATASET / "mid.npy")
+    spread = np.load(DATASET / "spread.npy")
+    ms = np.load(DATASET / "event_ms.npy")
+    half_bp = (spread / 2) / mid * 10_000
+    return {
+        "source": "dataset/manifest.json, mid.npy, spread.npy, event_ms.npy",
+        "built_utc": datetime.fromtimestamp(mf["built_ms"] / 1000.0,
+                                            timezone.utc).isoformat(),
+        "code_version": mf.get("code_version"),
+        "symbol": mf.get("symbol", "btcusdt"), "tick": mf["tick"],
+        "levels": mf["levels"], "frames": mf["frames"],
+        "hour_partitions": len(mf["partitions"]),
+        "input_bytes": mf["input_bytes"],
+        "trusted_intervals": mf["intervals"],
+        "longest_run_frames": mf["longest_run"],
+        "longest_run_hours": mf["longest_run"] / 10.0 / 3600.0,
+        "desyncs": mf["desyncs"], "events_skipped": mf["events_skipped"],
+        "events_unanchored": mf["events_unanchored"],
+        "first_event_utc": datetime.fromtimestamp(ms[0] / 1000.0,
+                                                  timezone.utc).isoformat(),
+        "last_event_utc": datetime.fromtimestamp(ms[-1] / 1000.0,
+                                                 timezone.utc).isoformat(),
+        "mid_first": float(mid[0]), "mid_last": float(mid[-1]),
+        "mid_min": float(mid.min()), "mid_max": float(mid.max()),
+        "mid_change_pct": float((mid[-1] / mid[0] - 1) * 100),
+        "mid_peak_to_trough_pct": float((mid.max() / mid.min() - 1) * 100),
+        "median_spread_bp": float(np.median(spread / mid * 10_000)),
+        "median_half_spread_bp": float(np.median(half_bp)),
+    }
+
+
+def gapstudy_facts() -> dict:
+    """The three arms of the gap-injection study, per drop rate.
+
+    Only runs carrying the naive@trusted control are eligible. Without it
+    the trusted/naive gap is confounded with sample size - the trusted arm
+    keeps far fewer windows at every p > 0 - and the earlier gapstudy runs
+    predate that arm, so quoting them would hide the confound rather than
+    show it.
+    """
+    keep = ("p", "mode", "frames", "runs", "desyncs", "dropped", "crossed",
+            "usable_ends", "macro_f1", "accuracy", "gross_bp", "boot_ci_bp",
+            "n_trades", "n_windows")
+    out = {}
+    for f in sorted(RUNS.glob("gapstudy-*.json"), key=lambda q: q.name):
+        d = json.loads(f.read_text())
+        if not any(r["mode"] == "naive@trusted" for r in d["results"]):
+            continue
+        out[f.name] = {
+            "rates": d["args"]["rates"], "hours": d["args"]["hours"],
+            "min_ends": d["args"].get("min_ends"),
+            "results": [dict((k, r[k]) for k in keep if k in r)
+                        for r in d["results"]],
+        }
+    if not out:
+        raise SystemExit("no runs/gapstudy-*.json carries a naive@trusted "
+                         "arm - rerun gapstudy.py")
+    return out
+
+
 FIGURES = {"latency": fig_latency, "costfloor": fig_costfloor,
            "ablation": fig_ablation, "fi2010": fig_fi2010,
            "coverage": fig_coverage, "heatmap": fig_heatmap}
@@ -409,6 +502,18 @@ def main() -> int:
     for name in want:
         FIGURES[name]()
     if set(want) == set(FIGURES):
+        FACTS["dataset"] = dataset_facts()
+        FACTS["gapstudy"] = gapstudy_facts()
+        # The trial ledger, counted rather than summarised: a best-of-N score
+        # with an unreported N is not a result, so N goes in the sidecar too.
+        rows = [json.loads(ln) for ln in
+                (RUNS / "trials.jsonl").read_text().splitlines() if ln.strip()]
+        FACTS["trials"] = {
+            "source": "runs/trials.jsonl",
+            "started": sum(1 for r in rows if r.get("status") == "started"),
+            "finished": sum(1 for r in rows if r.get("status") == "finished"),
+        }
+        FACTS["generated_utc"] = datetime.now(timezone.utc).isoformat()
         path = OUT / "figure-data.json"
         path.write_text(json.dumps(FACTS, indent=2, default=float))
         print("  " + str(path.relative_to(ROOT)))
