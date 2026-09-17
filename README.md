@@ -271,7 +271,7 @@ look more like a trading system and would have taught nothing.
 ```sh
 git clone <this repo> lobforge && cd lobforge
 python3 -m venv .venv && . .venv/bin/activate
-pip install -e ".[dev,research]"
+pip install -e ".[dev,research]"           # or: pip install -r requirements.txt
 pytest -q                                    # 80 passed
 ```
 
@@ -297,7 +297,8 @@ python3 evaluate.py --model deeplob  --label forward --k 100 --folds 3 \
 
 python3 costfloor.py --k 100 --folds 5
 python3 fi2010.py --download --epochs 80 --patience 10 --seed 1
-python3 gapstudy.py --hours 3 --rates 0,0.005,0.02 \n                    --folds 3 --epochs 2 --min-ends 3000
+python3 gapstudy.py --hours 3 --rates 0,0.005,0.02 \
+                    --folds 3 --epochs 2 --min-ends 3000
 
 python3 scripts/make_figures.py            # -> docs/figures/
 ```
@@ -400,3 +401,5 @@ Read these before citing anything above.
 Built with AI assistance (Claude). The design decisions, the experiments and the
 interpretation are the author's; a substantial fraction of the code was written
 in collaboration with an LLM.
+
+MIT licensed - see [LICENSE](LICENSE).

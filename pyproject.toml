@@ -3,16 +3,20 @@ name = "lobforge"
 version = "0.1.0"
 description = "Limit order book capture and microstructure research"
 requires-python = ">=3.11"
+# Pinned, not floored. The README quotes numbers, and a number is only
+# reproducible against the versions that produced it.
 dependencies = [
-    "websockets>=12.0",
-    "httpx>=0.27",
+    "websockets==17.0.1",
+    "httpx==0.28.1",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.5", "aiohttp>=3.9"]
+dev = ["pytest==9.1.1", "pytest-asyncio==1.4.0", "ruff==0.16.2", "aiohttp==3.14.3"]
 # The research tier. The collector deliberately does not depend on any of
 # this: it has to keep running on a box where torch was never installed.
-research = ["numpy>=1.26", "torch>=2.2", "matplotlib>=3.8"]
+# torch 2.13.0+cpu is what actually ran; the pin is the PyPI build of the same
+# version, so a plain pip install resolves without the CPU index.
+research = ["numpy==2.5.2", "torch==2.13.0", "matplotlib==3.11.1"]
 
 [project.scripts]
 lobforge-capture = "lobforge.capture:main"
