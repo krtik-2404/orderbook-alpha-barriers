@@ -398,8 +398,6 @@ Read these before citing anything above.
 
 ---
 
-Built with AI assistance (Claude). The design decisions, the experiments and the
-interpretation are the author's; a substantial fraction of the code was written
-in collaboration with an LLM.
+
 
 MIT licensed - see [LICENSE](LICENSE).
